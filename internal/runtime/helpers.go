@@ -17,8 +17,8 @@ func setupNetworking(ctr *container.Container) error {
 	return network.Setup(ctr)
 }
 
-func startVM(ctr *container.Container, spec *specs.Spec) error {
-	return vm.Start(ctr, spec)
+func startVM(ctr *container.Container, spec *specs.Spec, consoleSocket string) error {
+	return vm.Start(ctr, spec, consoleSocket)
 }
 
 func stopVM(ctr *container.Container) error {

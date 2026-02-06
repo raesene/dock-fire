@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -15,8 +16,10 @@ import (
 )
 
 // Start boots a Firecracker VM for the given container.
-// The VMM process runs independently after this function returns.
-func Start(ctr *container.Container, spec *specs.Spec) error {
+// If consoleSocket is non-empty, a PTY is created and the master fd is sent
+// over the socket (for docker run -it). Otherwise, stdin/stdout are wired
+// directly (for docker run -i or non-interactive).
+func Start(ctr *container.Container, spec *specs.Spec, consoleSocket string) error {
 	_ = spec // spec fields already baked into the rootfs image's init config
 
 	bootArgs := BuildBootArgs(ctr)
@@ -52,12 +55,47 @@ func Start(ctr *container.Container, spec *specs.Spec) error {
 	}
 	logFile.Close()
 
+	// Set up stdin/stdout for the Firecracker process.
+	// TTY mode: create a PTY, send master to containerd, use slave for Firecracker.
+	// Non-TTY mode: wire stdin/stdout directly.
+	var (
+		fcStdin  io.Reader
+		fcStdout io.Writer
+		master   *os.File
+		slave    *os.File
+	)
+
+	if consoleSocket != "" {
+		var err error
+		master, slave, err = openPTY()
+		if err != nil {
+			stderrFile.Close()
+			return fmt.Errorf("open pty: %w", err)
+		}
+
+		if err := sendConsoleFd(consoleSocket, master); err != nil {
+			master.Close()
+			slave.Close()
+			stderrFile.Close()
+			return fmt.Errorf("send console fd: %w", err)
+		}
+		// Containerd owns the master now; close our copy.
+		master.Close()
+
+		fcStdin = slave
+		fcStdout = slave
+	} else {
+		fcStdin = os.Stdin
+		fcStdout = os.Stdout
+	}
+
 	ctx := context.Background()
 	cmd := firecracker.VMCommandBuilder{}.
 		WithBin(DefaultFirecracker).
 		WithSocketPath(cfg.SocketPath).
 		AddArgs("--log-path", logPath, "--level", "Error").
-		WithStdout(os.Stdout).
+		WithStdin(fcStdin).
+		WithStdout(fcStdout).
 		WithStderr(stderrFile).
 		Build(ctx)
 
@@ -77,8 +115,15 @@ func Start(ctr *container.Container, spec *specs.Spec) error {
 	}
 
 	if err := machine.Start(ctx); err != nil {
+		if slave != nil {
+			slave.Close()
+		}
 		stderrFile.Close()
 		return fmt.Errorf("start machine: %w", err)
+	}
+	// Firecracker inherited the slave fd; close our copy.
+	if slave != nil {
+		slave.Close()
 	}
 
 	pid, err := machine.PID()

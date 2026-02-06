@@ -100,7 +100,8 @@ Where "<container-id>" is your name for the instance of the container.`,
 
 		// Boot the VM now so we have a valid PID for containerd.
 		// The guest init will run the user command immediately.
-		if err := startVM(ctr, spec); err != nil {
+		consoleSocket := c.String("console-socket")
+		if err := startVM(ctr, spec, consoleSocket); err != nil {
 			return fmt.Errorf("start VM: %w", err)
 		}
 
