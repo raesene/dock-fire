@@ -37,7 +37,19 @@ dock-fire requires an **x86_64 Linux host** with:
 - Docker (tested with 28.2.2) and containerd (tested with 1.7.28)
 - Root access (for Firecracker, TAP devices, and iptables)
 
-## Installation
+## Quick start
+
+The install script handles everything — Go, Firecracker, guest kernel, build, Docker config, and a smoke test:
+
+```bash
+git clone https://github.com/rorym/dock-fire.git
+cd dock-fire
+sudo ./install.sh
+```
+
+The script is idempotent and will skip components that are already installed.
+
+## Manual installation
 
 ### 1. Install Firecracker
 
