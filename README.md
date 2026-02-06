@@ -42,7 +42,7 @@ dock-fire requires an **x86_64 Linux host** with:
 The install script handles everything — Go, Firecracker, guest kernel, build, Docker config, and a smoke test:
 
 ```bash
-git clone https://github.com/rorym/dock-fire.git
+git clone https://github.com/raesene/dock-fire.git
 cd dock-fire
 sudo ./install.sh
 ```
@@ -70,19 +70,23 @@ firecracker --version
 
 ### 2. Install a guest kernel
 
-Firecracker needs an uncompressed Linux kernel (`vmlinux`). You can build one or download a prebuilt kernel. The default path is `/var/lib/vmm/images/kernels/vmlinux.bin`.
+Firecracker needs an uncompressed Linux kernel (`vmlinux`). The default path is `/var/lib/vmm/images/kernels/vmlinux.bin`.
 
 ```bash
 sudo mkdir -p /var/lib/vmm/images/kernels
 
-# Option A: Download a prebuilt kernel from Firecracker's CI artifacts
-KERNEL_VERSION=5.10
-curl -fsSL "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.11/${KERNEL_VERSION}/x86_64/vmlinux-${KERNEL_VERSION}.bin" \
+# Download the latest prebuilt kernel from GitHub Releases
+TAG=$(curl -fsSL https://api.github.com/repos/raesene/dock-fire/releases \
+  | jq -r '[.[] | select(.tag_name | startswith("kernel-6.1."))] | sort_by(.created_at) | last | .tag_name')
+curl -fsSL -L "https://github.com/raesene/dock-fire/releases/download/${TAG}/vmlinux.bin" \
   -o /tmp/vmlinux.bin
 sudo mv /tmp/vmlinux.bin /var/lib/vmm/images/kernels/vmlinux.bin
+```
 
-# Option B: Use your own vmlinux kernel
-# sudo cp /path/to/your/vmlinux /var/lib/vmm/images/kernels/vmlinux.bin
+You can also override the kernel path with an environment variable:
+
+```bash
+export DOCK_FIRE_KERNEL_PATH=/path/to/your/vmlinux.bin
 ```
 
 ### 3. Install system dependencies
@@ -102,7 +106,7 @@ Requires Go 1.21 or later:
 # Install Go if not already installed
 # See https://go.dev/doc/install
 
-git clone https://github.com/rorym/dock-fire.git
+git clone https://github.com/raesene/dock-fire.git
 cd dock-fire
 make all
 sudo make install
@@ -193,6 +197,30 @@ The container runs inside a VM with its own Linux kernel (separate from the host
 # Show the guest kernel version (different from the host)
 sudo docker run --runtime=dock-fire --net=none --rm alpine uname -r
 ```
+
+To use a different kernel, set `DOCK_FIRE_KERNEL_PATH` in the environment where the Docker daemon runs:
+
+```bash
+export DOCK_FIRE_KERNEL_PATH=/path/to/your/vmlinux.bin
+```
+
+## Building a custom kernel
+
+The `scripts/build-kernel.sh` script builds a Firecracker-compatible kernel from source. It auto-detects the latest patch version for a given kernel series:
+
+```bash
+# Build the latest 6.1.x kernel (default)
+./scripts/build-kernel.sh
+
+# Build a different series
+./scripts/build-kernel.sh 6.6
+```
+
+This outputs `vmlinux.bin` and `kernel-version.txt` to the current directory. Build dependencies: `build-essential flex bison bc libelf-dev libssl-dev wget curl jq`.
+
+The kernel is based on Firecracker's official config with additional options enabled for Docker-in-VM support (overlayfs, cgroups, namespaces, netfilter) and `CONFIG_PCI` for mainline kernel compatibility.
+
+A [GitHub Actions workflow](.github/workflows/build-kernel.yml) automatically builds and publishes new kernel patch releases weekly to [GitHub Releases](https://github.com/raesene/dock-fire/releases).
 
 ## Resource defaults
 
