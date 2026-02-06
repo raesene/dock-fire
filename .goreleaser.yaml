@@ -1,0 +1,46 @@
+version: 2
+
+builds:
+  - id: dock-fire
+    main: ./cmd/dock-fire
+    binary: dock-fire
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w
+
+  - id: dock-fire-init
+    main: ./cmd/dock-fire-init
+    binary: dock-fire-init
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w -extldflags "-static"
+
+archives:
+  - id: default
+    builds:
+      - dock-fire
+      - dock-fire-init
+    format: tar.gz
+    name_template: "dock-fire_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+release:
+  github:
+    owner: raesene
+    name: dock-fire
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"

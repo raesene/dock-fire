@@ -39,12 +39,10 @@ dock-fire requires an **x86_64 Linux host** with:
 
 ## Quick start
 
-The install script handles everything — Go, Firecracker, guest kernel, build, Docker config, and a smoke test:
+The install script handles everything — Firecracker, guest kernel, dock-fire binaries, Docker config, and a smoke test:
 
 ```bash
-git clone https://github.com/raesene/dock-fire.git
-cd dock-fire
-sudo ./install.sh
+curl -fsSL https://raw.githubusercontent.com/raesene/dock-fire/main/install.sh | sudo bash
 ```
 
 The script is idempotent and will skip components that are already installed.
@@ -98,23 +96,24 @@ sudo apt-get update
 sudo apt-get install -y e2fsprogs iproute2 iptables
 ```
 
-### 4. Build dock-fire
+### 4. Install dock-fire
 
-Requires Go 1.21 or later:
+Download prebuilt binaries from [GitHub Releases](https://github.com/raesene/dock-fire/releases):
 
 ```bash
-# Install Go if not already installed
-# See https://go.dev/doc/install
-
-git clone https://github.com/raesene/dock-fire.git
-cd dock-fire
-make all
-sudo make install
+# Download the latest release
+TAG=$(curl -fsSL https://api.github.com/repos/raesene/dock-fire/releases \
+  | jq -r '[.[] | select(.tag_name | startswith("v"))] | sort_by(.created_at) | last | .tag_name')
+VERSION="${TAG#v}"
+curl -fsSL -L "https://github.com/raesene/dock-fire/releases/download/${TAG}/dock-fire_${VERSION}_linux_amd64.tar.gz" \
+  | sudo tar -xz -C /usr/local/bin/ dock-fire dock-fire-init
 ```
 
 This installs two binaries:
 - `/usr/local/bin/dock-fire` - The OCI runtime binary
 - `/usr/local/bin/dock-fire-init` - The guest init process (statically linked)
+
+For development builds, clone the repo and run `make all && sudo make install` (requires Go).
 
 ### 5. Configure Docker
 

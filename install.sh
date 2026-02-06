@@ -3,13 +3,12 @@ set -euo pipefail
 
 # dock-fire installer
 # Installs all dependencies and configures Docker to use dock-fire as a runtime.
-# Usage: sudo ./install.sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/raesene/dock-fire/main/install.sh | sudo bash
 
 FIRECRACKER_VERSION="1.11.0"
 KERNEL_SERIES="6.1"
 GITHUB_REPO="raesene/dock-fire"
 KERNEL_PATH="/var/lib/vmm/images/kernels/vmlinux.bin"
-GO_MIN_VERSION="1.21"
 
 # --- Colours and output helpers ---
 
@@ -31,7 +30,7 @@ validate_environment() {
     step "Validating environment"
 
     if [[ $EUID -ne 0 ]]; then
-        fail "This script must be run as root (use sudo ./install.sh)"
+        fail "This script must be run as root (use sudo)"
     fi
     ok "Running as root"
 
@@ -78,57 +77,6 @@ install_system_packages() {
         apt-get install -y -qq "${to_install[@]}"
         ok "Installed: ${to_install[*]}"
     fi
-}
-
-# --- Go ---
-
-go_version_ok() {
-    if ! command -v go &>/dev/null; then
-        return 1
-    fi
-    local ver
-    ver=$(go version | grep -oP 'go\K[0-9]+\.[0-9]+')
-    # Compare major.minor >= GO_MIN_VERSION
-    local maj min req_maj req_min
-    maj=$(echo "$ver" | cut -d. -f1)
-    min=$(echo "$ver" | cut -d. -f2)
-    req_maj=$(echo "$GO_MIN_VERSION" | cut -d. -f1)
-    req_min=$(echo "$GO_MIN_VERSION" | cut -d. -f2)
-    (( maj > req_maj || (maj == req_maj && min >= req_min) ))
-}
-
-install_go() {
-    step "Checking Go"
-
-    # Check PATH includes /usr/local/go/bin for this script
-    if [[ -d /usr/local/go/bin ]] && [[ ":$PATH:" != *":/usr/local/go/bin:"* ]]; then
-        export PATH="/usr/local/go/bin:$PATH"
-    fi
-
-    if go_version_ok; then
-        skip "Go already installed: $(go version)"
-        return
-    fi
-
-    install "Downloading latest Go from go.dev"
-    local go_tarball
-    go_tarball=$(curl -fsSL 'https://go.dev/dl/?mode=json' | jq -r '.[0].files[] | select(.os=="linux" and .arch=="amd64" and .kind=="archive") | .filename')
-
-    if [[ -z "$go_tarball" ]]; then
-        fail "Could not determine latest Go download URL"
-    fi
-
-    curl -fsSL "https://go.dev/dl/${go_tarball}" -o "/tmp/${go_tarball}"
-    rm -rf /usr/local/go
-    tar -C /usr/local -xzf "/tmp/${go_tarball}"
-    rm -f "/tmp/${go_tarball}"
-
-    export PATH="/usr/local/go/bin:$PATH"
-    ok "Installed $(go version)"
-
-    echo ""
-    echo "  Note: Add to your shell profile if not already present:"
-    echo "    export PATH=/usr/local/go/bin:\$PATH"
 }
 
 # --- Firecracker ---
@@ -190,32 +138,51 @@ install_kernel() {
     ok "Guest kernel (${tag}) installed to ${KERNEL_PATH}"
 }
 
-# --- Build dock-fire ---
+# --- dock-fire binaries ---
 
-build_dock_fire() {
-    step "Building dock-fire"
+install_dock_fire() {
+    step "Installing dock-fire binaries"
 
-    local script_dir
-    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    # Check if dock-fire is already installed
+    if command -v dock-fire &>/dev/null; then
+        local current
+        current=$(dock-fire --version 2>&1 || true)
+        skip "dock-fire already installed: ${current}"
+        skip "To upgrade, remove /usr/local/bin/dock-fire and re-run this script"
+        return
+    fi
 
-    install "make all"
-    make -C "$script_dir" all
+    install "Querying latest dock-fire release from GitHub"
+    local release_info
+    release_info=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases" \
+        | jq -r '[.[] | select(.tag_name | startswith("v"))] | sort_by(.created_at) | last')
 
-    ok "Built bin/dock-fire and bin/dock-fire-init"
-}
+    if [[ -z "$release_info" || "$release_info" == "null" ]]; then
+        fail "No dock-fire release found in ${GITHUB_REPO}"
+    fi
 
-# --- Install binaries ---
+    local tag
+    tag=$(echo "$release_info" | jq -r '.tag_name')
+    local version="${tag#v}"
 
-install_binaries() {
-    step "Installing binaries"
+    local asset_name="dock-fire_${version}_linux_amd64.tar.gz"
+    local asset_url
+    asset_url=$(echo "$release_info" | jq -r --arg name "$asset_name" \
+        '.assets[] | select(.name == $name) | .browser_download_url // empty')
 
-    local script_dir
-    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [[ -z "$asset_url" ]]; then
+        fail "Asset ${asset_name} not found in release ${tag}"
+    fi
 
-    install "make install"
-    make -C "$script_dir" install
+    install "Downloading ${asset_name}"
+    curl -fsSL -L "$asset_url" -o "/tmp/${asset_name}"
 
-    ok "Installed to /usr/local/bin/dock-fire and /usr/local/bin/dock-fire-init"
+    install "Extracting binaries to /usr/local/bin/"
+    tar -xzf "/tmp/${asset_name}" -C /usr/local/bin/ dock-fire dock-fire-init
+    chmod +x /usr/local/bin/dock-fire /usr/local/bin/dock-fire-init
+    rm -f "/tmp/${asset_name}"
+
+    ok "dock-fire ${tag} installed to /usr/local/bin/"
 }
 
 # --- Configure Docker ---
@@ -275,11 +242,9 @@ main() {
 
     validate_environment
     install_system_packages
-    install_go
     install_firecracker
     install_kernel
-    build_dock_fire
-    install_binaries
+    install_dock_fire
     configure_docker
     smoke_test
 
