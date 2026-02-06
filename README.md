@@ -241,6 +241,34 @@ export DOCK_FIRE_VCPUS=2
 
 Memory accepts `256M` (megabytes), `1G` (gigabytes), or plain MiB (`256`). vCPUs accepts a plain integer.
 
+## Docker-in-Firecracker (DinD)
+
+dock-fire can run Docker inside a Firecracker VM, giving you a fully isolated Docker daemon with hardware-level separation. The `images/dind/` directory contains a ready-made image for this.
+
+Build the image:
+
+```bash
+docker build -t dind-fire images/dind
+```
+
+Run Docker inside a Firecracker VM (needs more resources than the default 128 MB):
+
+```bash
+sudo docker run --runtime=dock-fire --net=none --rm \
+  --annotation dock-fire/memory=512M \
+  --annotation dock-fire/disk-size=4G \
+  dind-fire sh -c "docker run --rm alpine echo hello-from-inner-container"
+```
+
+This boots a Firecracker VM, starts dockerd inside it, pulls Alpine from the internet (via dock-fire's TAP networking), and runs a container inside the VM's Docker. You can also get an interactive shell with a working Docker:
+
+```bash
+sudo docker run --runtime=dock-fire --net=none --rm -it \
+  --annotation dock-fire/memory=512M \
+  --annotation dock-fire/disk-size=4G \
+  dind-fire
+```
+
 ## Building a custom kernel
 
 The `scripts/build-kernel.sh` script builds a Firecracker-compatible kernel from source. It auto-detects the latest patch version for a given kernel series:
