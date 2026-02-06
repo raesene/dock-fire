@@ -14,9 +14,10 @@ import (
 
 // InitConfig is the configuration written to /etc/dock-fire/config.json inside the VM.
 type InitConfig struct {
-	Args []string `json:"args"`
-	Env  []string `json:"env"`
-	Cwd  string   `json:"cwd"`
+	Args     []string `json:"args"`
+	Env      []string `json:"env"`
+	Cwd      string   `json:"cwd"`
+	Terminal bool     `json:"terminal,omitempty"`
 }
 
 // CreateImage converts an OCI rootfs directory into an ext4 block device image.
@@ -93,6 +94,7 @@ func CreateImage(rootDir, id, rootfsPath string, spec *specs.Spec) (string, erro
 	if spec.Process != nil {
 		initCfg.Args = spec.Process.Args
 		initCfg.Env = spec.Process.Env
+		initCfg.Terminal = spec.Process.Terminal
 		if spec.Process.Cwd != "" {
 			initCfg.Cwd = spec.Process.Cwd
 		}

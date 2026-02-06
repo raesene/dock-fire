@@ -12,9 +12,10 @@ import (
 const configPath = "/etc/dock-fire/config.json"
 
 type initConfig struct {
-	Args []string `json:"args"`
-	Env  []string `json:"env"`
-	Cwd  string   `json:"cwd"`
+	Args     []string `json:"args"`
+	Env      []string `json:"env"`
+	Cwd      string   `json:"cwd"`
+	Terminal bool     `json:"terminal,omitempty"`
 }
 
 func main() {
@@ -90,12 +91,36 @@ func run() error {
 		return fmt.Errorf("resolve command %q: %w", cfg.Args[0], err)
 	}
 
+	// Set up stdio for the child process.
+	// When terminal mode is requested, open /dev/ttyS0 as a proper
+	// controlling terminal so bash gets job control. /dev/console
+	// doesn't support the TIOCSPGRP ioctl that bash needs.
 	// Start the child process
 	cmd := exec.Command(binary, cfg.Args[1:]...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 	cmd.Env = env
+
+	if cfg.Terminal {
+		// Open /dev/ttyS0 as a proper TTY for the child. /dev/console
+		// doesn't support TIOCSPGRP which bash needs for job control.
+		// The child gets a new session (Setsid) and acquires /dev/ttyS0
+		// as its controlling terminal (Setctty+Ctty).
+		tty, err := os.OpenFile("/dev/ttyS0", os.O_RDWR, 0)
+		if err != nil {
+			return fmt.Errorf("open /dev/ttyS0: %w", err)
+		}
+		cmd.Stdin = tty
+		cmd.Stdout = tty
+		cmd.Stderr = tty
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			Setsid:  true,
+			Setctty: true,
+			Ctty:    0, // fd 0 in the child (stdin = tty)
+		}
+	} else {
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start command: %w", err)
