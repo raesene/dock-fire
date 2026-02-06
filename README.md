@@ -1,5 +1,48 @@
 # dock-fire
 
+`dock-fire` is a vibe-coded Docker runtime plugin used as a simple way to get VM level isolation using [Firecracker](https://firecracker-microvm.github.io/). At the moment the basics work but there are several rough edges, probably unwise to use anywhere other than test servers.
+
+It should be useful where you want hypervisor level isolation to run ephemeral workloads or try things out.
+
+## Setup
+
+The basic setup is to clone the repo and run the included `./install.sh` script as root. That will download the binaries used by the program and also grab a kernel from the repository. This is currently a 6.1 kernel that should have a decent set of configured kernel options for most workloads.
+
+## Running
+
+Once setup you can run containers with `--runtime=dock-fire` and you'll get isolation in a firecracker VM
+
+## Resource Configuration
+
+The default resource assumptions are pretty minimal for development and testing, if you want to do anything sensible giving the VMs more resources is a good idea
+
+In order to set-up the resources given to each VM, you can either set defaults with environment variable or use runtime parameters. Setting environment variables looks like this
+
+```bash
+#dock-fire settings
+export DOCK_FIRE_DISK_SIZE=20G
+export DOCK_FIRE_MEMORY=2048M
+export DOCK_FIRE_VCPUS=2
+```
+
+Providing them on the Docker CLI looks like this
+
+```bash
+sudo docker run --annotation dock-fire/disk-size=20G --annotation dock-fire/memory=2048M --annotation dock-fire/vcpus=2 --runtime=dock-fire --net=none --rm  -it ubuntu:24.04 /bin/bash
+```
+
+## Networking
+
+At the moment `dock-fire` doesn't integrate with Docker's bridge networking, so launch with `--net none` and it will provide it's own network setup.
+
+## Volumes
+
+At the moment we don't have volume support
+
+
+
+## LLM generated more detail README
+
 An OCI-compliant container runtime that boots Docker containers inside [Firecracker](https://firecracker-microvm.github.io/) microVMs. Each container runs in its own lightweight VM, providing hardware-level isolation while preserving the standard `docker run` workflow.
 
 ```
