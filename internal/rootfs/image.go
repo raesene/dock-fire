@@ -31,13 +31,14 @@ func CreateImage(rootDir, id, rootfsPath string, spec *specs.Spec) (string, erro
 	imagePath := filepath.Join(stateDir, "rootfs.ext4")
 	mountPoint := filepath.Join(stateDir, "mnt")
 
-	// Calculate image size: rootfs + 100MB padding
+	// Calculate image size: rootfs + 20% padding for ext4 metadata
+	// (journal, inodes, group descriptors, bitmaps). Flat padding
+	// doesn't scale for large images.
 	rootfsSize, err := dirSize(rootfsPath)
 	if err != nil {
 		return "", fmt.Errorf("calculate rootfs size: %w", err)
 	}
-	// Minimum 100MB, rootfs + 100MB padding
-	imageSize := rootfsSize + 100*1024*1024
+	imageSize := rootfsSize + rootfsSize/5 // +20%
 	if imageSize < 100*1024*1024 {
 		imageSize = 100 * 1024 * 1024
 	}
