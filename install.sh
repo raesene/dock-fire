@@ -6,7 +6,8 @@ set -euo pipefail
 # Usage: sudo ./install.sh
 
 FIRECRACKER_VERSION="1.11.0"
-KERNEL_VERSION="5.10"
+KERNEL_SERIES="6.1"
+GITHUB_REPO="raesene/dock-fire"
 KERNEL_PATH="/var/lib/vmm/images/kernels/vmlinux.bin"
 GO_MIN_VERSION="1.21"
 
@@ -169,13 +170,24 @@ install_kernel() {
         return
     fi
 
-    install "Downloading guest kernel (${KERNEL_VERSION})"
+    install "Fetching latest kernel-${KERNEL_SERIES}.x release from GitHub"
     mkdir -p "$(dirname "$KERNEL_PATH")"
 
-    local url="https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/v1.11/${KERNEL_VERSION}/x86_64/vmlinux-${KERNEL_VERSION}.bin"
-    curl -fsSL "$url" -o "$KERNEL_PATH"
+    # Find the latest kernel release matching our series
+    local tag
+    tag=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases" \
+        | jq -r --arg s "kernel-${KERNEL_SERIES}." \
+            '[.[] | select(.tag_name | startswith($s))] | sort_by(.created_at) | last | .tag_name // empty')
 
-    ok "Guest kernel installed to ${KERNEL_PATH}"
+    if [[ -z "$tag" ]]; then
+        fail "No kernel-${KERNEL_SERIES}.x release found in ${GITHUB_REPO}"
+    fi
+
+    local url="https://github.com/${GITHUB_REPO}/releases/download/${tag}/vmlinux.bin"
+    install "Downloading ${tag} from GitHub Releases"
+    curl -fsSL -L "$url" -o "$KERNEL_PATH"
+
+    ok "Guest kernel (${tag}) installed to ${KERNEL_PATH}"
 }
 
 # --- Build dock-fire ---

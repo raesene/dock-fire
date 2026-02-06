@@ -16,11 +16,8 @@ import (
 )
 
 // Start boots a Firecracker VM for the given container.
-// If consoleSocket is non-empty, a PTY is created and the master fd is sent
-// over the socket (for docker run -it). Otherwise, stdin/stdout are wired
-// directly (for docker run -i or non-interactive).
 func Start(ctr *container.Container, spec *specs.Spec, consoleSocket string) error {
-	_ = spec // spec fields already baked into the rootfs image's init config
+	_ = spec
 
 	bootArgs := BuildBootArgs(ctr)
 	cfg := BuildConfig(ctr, bootArgs)
@@ -28,25 +25,16 @@ func Start(ctr *container.Container, spec *specs.Spec, consoleSocket string) err
 	logrus.Debugf("VM config: kernel=%s rootfs=%s socket=%s", cfg.KernelImagePath, ctr.ImagePath, cfg.SocketPath)
 	logrus.Debugf("boot args: %s", bootArgs)
 
-	// Remove stale socket if any
 	os.Remove(cfg.SocketPath)
 
 	stateDir := filepath.Join(ctr.RootDir, ctr.ID)
 
-	// Firecracker serial console goes to stdout, and we want it to reach
-	// Docker via the containerd shim's pipe. Pass os.Stdout directly -- the
-	// child process inherits the fd, so the pipe stays open after dock-fire
-	// exits. Stderr captures Firecracker's own API log messages.
 	stderrPath := filepath.Join(stateDir, "vm-stderr.log")
 	stderrFile, err := os.OpenFile(stderrPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return fmt.Errorf("open stderr log: %w", err)
 	}
 
-	// Redirect Firecracker's own log messages (e.g. "[anonymous-instance:main]
-	// Running Firecracker v1.11.0") to a file via CLI flag. This must be done
-	// via --log-path (not the API) to catch messages emitted before the API is ready.
-	// Firecracker requires the log file to exist.
 	logPath := filepath.Join(stateDir, "vm-log.log")
 	logFile, err := os.Create(logPath)
 	if err != nil {
@@ -55,9 +43,6 @@ func Start(ctr *container.Container, spec *specs.Spec, consoleSocket string) err
 	}
 	logFile.Close()
 
-	// Set up stdin/stdout for the Firecracker process.
-	// TTY mode: create a PTY, send master to containerd, use slave for Firecracker.
-	// Non-TTY mode: wire stdin/stdout directly.
 	var (
 		fcStdin  io.Reader
 		fcStdout io.Writer
@@ -79,7 +64,6 @@ func Start(ctr *container.Container, spec *specs.Spec, consoleSocket string) err
 			stderrFile.Close()
 			return fmt.Errorf("send console fd: %w", err)
 		}
-		// Containerd owns the master now; close our copy.
 		master.Close()
 
 		fcStdin = slave
@@ -99,8 +83,6 @@ func Start(ctr *container.Container, spec *specs.Spec, consoleSocket string) err
 		WithStderr(stderrFile).
 		Build(ctx)
 
-	// The SDK creates its own logrus logger; redirect it to the stderr log
-	// file so it doesn't pollute the serial console output.
 	sdkLogger := logrus.New()
 	sdkLogger.SetOutput(stderrFile)
 	sdkLogger.SetLevel(logrus.WarnLevel)
@@ -121,7 +103,6 @@ func Start(ctr *container.Container, spec *specs.Spec, consoleSocket string) err
 		stderrFile.Close()
 		return fmt.Errorf("start machine: %w", err)
 	}
-	// Firecracker inherited the slave fd; close our copy.
 	if slave != nil {
 		slave.Close()
 	}
@@ -133,6 +114,7 @@ func Start(ctr *container.Container, spec *specs.Spec, consoleSocket string) err
 	}
 
 	ctr.PID = pid
+
 	logrus.Debugf("VM started with PID %d", pid)
 
 	stderrFile.Close()

@@ -2,6 +2,7 @@ package vm
 
 import (
 	"fmt"
+	"os"
 
 	firecracker "github.com/firecracker-microvm/firecracker-go-sdk"
 	models "github.com/firecracker-microvm/firecracker-go-sdk/client/models"
@@ -15,6 +16,15 @@ const (
 	DefaultFirecracker  = "firecracker"
 )
 
+// kernelPath returns the guest kernel path, preferring the DOCK_FIRE_KERNEL_PATH
+// environment variable over the compiled-in default.
+func kernelPath() string {
+	if p := os.Getenv("DOCK_FIRE_KERNEL_PATH"); p != "" {
+		return p
+	}
+	return DefaultKernelPath
+}
+
 // BuildConfig creates a Firecracker VM config from container state.
 func BuildConfig(ctr *container.Container, bootArgs string) firecracker.Config {
 	// Use a short socket path to stay under the 108-char Unix socket limit.
@@ -25,7 +35,7 @@ func BuildConfig(ctr *container.Container, bootArgs string) firecracker.Config {
 
 	cfg := firecracker.Config{
 		SocketPath:      socketPath,
-		KernelImagePath: DefaultKernelPath,
+		KernelImagePath: kernelPath(),
 		KernelArgs:      bootArgs,
 		Drives:          firecracker.NewDrivesBuilder(ctr.ImagePath).Build(),
 		MachineCfg: models.MachineConfiguration{
@@ -51,7 +61,7 @@ func BuildConfig(ctr *container.Container, bootArgs string) firecracker.Config {
 
 // BuildBootArgs constructs the kernel boot arguments.
 func BuildBootArgs(ctr *container.Container) string {
-	args := "console=ttyS0 loglevel=0 reboot=k panic=1 pci=off i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd init=/sbin/dock-fire-init"
+	args := "console=ttyS0 reboot=k panic=1 pci=off loglevel=0 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd init=/sbin/dock-fire-init"
 
 	// Add networking if configured
 	if ctr.GuestIP != "" && ctr.HostIP != "" {
