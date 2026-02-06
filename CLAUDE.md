@@ -63,6 +63,19 @@ ssh rorym@192.168.41.108 'sudo cp /tmp/dock-fire* /usr/local/bin/'
 ssh rorym@192.168.41.108 'sudo docker run --runtime=dock-fire --net=none --rm alpine echo hello'
 ```
 
+## Configurable resources
+
+Resources follow a priority chain: **annotation > env var > default**. This pattern is used in `internal/vm/config.go` and `internal/rootfs/image.go`.
+
+| Resource | Annotation | Env var | Default | Parser |
+|----------|-----------|---------|---------|--------|
+| vCPUs | `dock-fire/vcpus` | `DOCK_FIRE_VCPUS` | 1 | plain integer |
+| Memory | `dock-fire/memory` | `DOCK_FIRE_MEMORY` | 128 MB | `parseMemSize()` — `256M`, `1G`, or plain MiB |
+| Disk size | `dock-fire/disk-size` | `DOCK_FIRE_DISK_SIZE` | 1 GB | `parseSize()` — `512M`, `2G`, or plain bytes |
+| Kernel | — | `DOCK_FIRE_KERNEL_PATH` | `/var/lib/vmm/images/kernels/vmlinux.bin` | path string |
+
+Invalid values log a warning and fall back to the default.
+
 ## Common issues
 
 - **urfave/cli**: Flags must come before positional args

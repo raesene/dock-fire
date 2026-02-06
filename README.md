@@ -204,6 +204,44 @@ To use a different kernel, set `DOCK_FIRE_KERNEL_PATH` in the environment where 
 export DOCK_FIRE_KERNEL_PATH=/path/to/your/vmlinux.bin
 ```
 
+### Disk size
+
+By default, each VM gets at least 1 GB of disk space (or rootfs + 20% for larger images). You can override this per-container with an annotation or system-wide with an environment variable.
+
+Per-container (annotation takes precedence):
+
+```bash
+sudo docker run --annotation dock-fire/disk-size=2G --runtime=dock-fire --net=none --rm alpine df -h /
+```
+
+System-wide (set in the Docker daemon's environment):
+
+```bash
+export DOCK_FIRE_DISK_SIZE=512M
+```
+
+Accepted formats: `512M` (megabytes), `2G` (gigabytes), or plain bytes (`1073741824`).
+
+### Memory and CPU
+
+By default, each VM gets 1 vCPU and 128 MB of memory. You can override these per-container with annotations or system-wide with environment variables.
+
+Per-container (annotations take precedence):
+
+```bash
+sudo docker run --annotation dock-fire/memory=256M --runtime=dock-fire --net=none --rm alpine free -m
+sudo docker run --annotation dock-fire/vcpus=2 --runtime=dock-fire --net=none --rm alpine nproc
+```
+
+System-wide (set in the Docker daemon's environment):
+
+```bash
+export DOCK_FIRE_MEMORY=256M
+export DOCK_FIRE_VCPUS=2
+```
+
+Memory accepts `256M` (megabytes), `1G` (gigabytes), or plain MiB (`256`). vCPUs accepts a plain integer.
+
 ## Building a custom kernel
 
 The `scripts/build-kernel.sh` script builds a Firecracker-compatible kernel from source. It auto-detects the latest patch version for a given kernel series:
@@ -226,12 +264,14 @@ A [GitHub Actions workflow](.github/workflows/build-kernel.yml) automatically bu
 
 Each Firecracker VM is configured with:
 
-| Resource | Default |
-|----------|---------|
-| vCPUs | 1 |
-| Memory | 128 MB |
-| Root disk | rootfs size + 100 MB padding |
-| Network | /30 subnet with NAT |
+| Resource | Default | Configurable via |
+|----------|---------|-----------------|
+| vCPUs | 1 | `dock-fire/vcpus` annotation, `DOCK_FIRE_VCPUS` env var |
+| Memory | 128 MB | `dock-fire/memory` annotation, `DOCK_FIRE_MEMORY` env var |
+| Root disk | 1 GB minimum (or rootfs + 20%, whichever is larger) | `dock-fire/disk-size` annotation, `DOCK_FIRE_DISK_SIZE` env var |
+| Network | /30 subnet with NAT | — |
+
+Root disk images are sparse files, so the 1 GB minimum only consumes actual disk space for data written to it.
 
 ## Troubleshooting
 

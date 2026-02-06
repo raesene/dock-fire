@@ -3,10 +3,14 @@ package vm
 import (
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	firecracker "github.com/firecracker-microvm/firecracker-go-sdk"
 	models "github.com/firecracker-microvm/firecracker-go-sdk/client/models"
+	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/rorym/dock-fire/internal/container"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -25,8 +29,79 @@ func kernelPath() string {
 	return DefaultKernelPath
 }
 
+// vcpuCount returns the number of vCPUs for the VM.
+// Priority: annotation "dock-fire/vcpus" > env var DOCK_FIRE_VCPUS > DefaultVCPUs.
+func vcpuCount(spec *specs.Spec) int64 {
+	if spec.Annotations != nil {
+		if v, ok := spec.Annotations["dock-fire/vcpus"]; ok {
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+				return n
+			}
+			logrus.Warnf("ignoring invalid dock-fire/vcpus annotation %q", v)
+		}
+	}
+	if v := os.Getenv("DOCK_FIRE_VCPUS"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			return n
+		}
+		logrus.Warnf("ignoring invalid DOCK_FIRE_VCPUS=%q", v)
+	}
+	return DefaultVCPUs
+}
+
+// memSizeMB returns the memory size in MiB for the VM.
+// Priority: annotation "dock-fire/memory" > env var DOCK_FIRE_MEMORY > DefaultMemMB.
+// Accepts plain MiB ("256"), megabytes ("256M"), or gigabytes ("1G").
+func memSizeMB(spec *specs.Spec) int64 {
+	if spec.Annotations != nil {
+		if v, ok := spec.Annotations["dock-fire/memory"]; ok {
+			if n, err := parseMemSize(v); err == nil {
+				return n
+			}
+			logrus.Warnf("ignoring invalid dock-fire/memory annotation %q", v)
+		}
+	}
+	if v := os.Getenv("DOCK_FIRE_MEMORY"); v != "" {
+		if n, err := parseMemSize(v); err == nil {
+			return n
+		}
+		logrus.Warnf("ignoring invalid DOCK_FIRE_MEMORY=%q", v)
+	}
+	return DefaultMemMB
+}
+
+// parseMemSize parses a memory size string into MiB.
+// Accepts plain MiB ("256"), megabytes ("256M"), or gigabytes ("1G").
+func parseMemSize(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, fmt.Errorf("empty size string")
+	}
+	suffix := strings.ToUpper(s[len(s)-1:])
+	switch suffix {
+	case "G":
+		n, err := strconv.ParseInt(s[:len(s)-1], 10, 64)
+		if err != nil || n <= 0 {
+			return 0, fmt.Errorf("invalid memory size %q", s)
+		}
+		return n * 1024, nil
+	case "M":
+		n, err := strconv.ParseInt(s[:len(s)-1], 10, 64)
+		if err != nil || n <= 0 {
+			return 0, fmt.Errorf("invalid memory size %q", s)
+		}
+		return n, nil
+	default:
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil || n <= 0 {
+			return 0, fmt.Errorf("invalid memory size %q", s)
+		}
+		return n, nil
+	}
+}
+
 // BuildConfig creates a Firecracker VM config from container state.
-func BuildConfig(ctr *container.Container, bootArgs string) firecracker.Config {
+func BuildConfig(ctr *container.Container, bootArgs string, spec *specs.Spec) firecracker.Config {
 	// Use a short socket path to stay under the 108-char Unix socket limit.
 	// Docker sets root to long paths like /var/run/docker/runtime-runc/moby
 	// combined with 64-char container IDs.
@@ -39,8 +114,8 @@ func BuildConfig(ctr *container.Container, bootArgs string) firecracker.Config {
 		KernelArgs:      bootArgs,
 		Drives:          firecracker.NewDrivesBuilder(ctr.ImagePath).Build(),
 		MachineCfg: models.MachineConfiguration{
-			VcpuCount:  firecracker.Int64(DefaultVCPUs),
-			MemSizeMib: firecracker.Int64(DefaultMemMB),
+			VcpuCount:  firecracker.Int64(vcpuCount(spec)),
+			MemSizeMib: firecracker.Int64(memSizeMB(spec)),
 		},
 	}
 

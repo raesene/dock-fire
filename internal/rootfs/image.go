@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 
@@ -39,10 +41,30 @@ func CreateImage(rootDir, id, rootfsPath string, spec *specs.Spec) (string, erro
 		return "", fmt.Errorf("calculate rootfs size: %w", err)
 	}
 	imageSize := rootfsSize + rootfsSize/5 // +20%
-	if imageSize < 100*1024*1024 {
-		imageSize = 100 * 1024 * 1024
+
+	// Determine minimum disk size: annotation > env var > 1GB default.
+	// Images are sparse files, so a large minimum costs nothing until written.
+	minSize := int64(1024 * 1024 * 1024) // 1GB default
+	if v := os.Getenv("DOCK_FIRE_DISK_SIZE"); v != "" {
+		if parsed, err := parseSize(v); err == nil {
+			minSize = parsed
+		} else {
+			logrus.Warnf("ignoring invalid DOCK_FIRE_DISK_SIZE=%q: %v", v, err)
+		}
 	}
-	logrus.Debugf("rootfs size: %d bytes, image size: %d bytes", rootfsSize, imageSize)
+	if spec.Annotations != nil {
+		if v, ok := spec.Annotations["dock-fire/disk-size"]; ok {
+			if parsed, err := parseSize(v); err == nil {
+				minSize = parsed
+			} else {
+				logrus.Warnf("ignoring invalid dock-fire/disk-size annotation %q: %v", v, err)
+			}
+		}
+	}
+	if imageSize < minSize {
+		imageSize = minSize
+	}
+	logrus.Debugf("rootfs size: %d bytes, image size: %d bytes (min: %d bytes)", rootfsSize, imageSize, minSize)
 
 	// Create sparse file
 	if err := exec.Command("truncate", "-s", fmt.Sprintf("%d", imageSize), imagePath).Run(); err != nil {
@@ -114,6 +136,36 @@ func CreateImage(rootDir, id, rootfsPath string, spec *specs.Spec) (string, erro
 
 	logrus.Debugf("created rootfs image at %s", imagePath)
 	return imagePath, nil
+}
+
+// parseSize parses a human-readable size string into bytes.
+// Accepts plain bytes ("1073741824"), megabytes ("512M"), or gigabytes ("2G").
+func parseSize(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, fmt.Errorf("empty size string")
+	}
+	suffix := strings.ToUpper(s[len(s)-1:])
+	switch suffix {
+	case "G":
+		n, err := strconv.ParseInt(s[:len(s)-1], 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid size %q: %w", s, err)
+		}
+		return n * 1024 * 1024 * 1024, nil
+	case "M":
+		n, err := strconv.ParseInt(s[:len(s)-1], 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid size %q: %w", s, err)
+		}
+		return n * 1024 * 1024, nil
+	default:
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid size %q: %w", s, err)
+		}
+		return n, nil
+	}
 }
 
 func dirSize(path string) (int64, error) {

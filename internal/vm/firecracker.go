@@ -17,10 +17,8 @@ import (
 
 // Start boots a Firecracker VM for the given container.
 func Start(ctr *container.Container, spec *specs.Spec, consoleSocket string) error {
-	_ = spec
-
 	bootArgs := BuildBootArgs(ctr)
-	cfg := BuildConfig(ctr, bootArgs)
+	cfg := BuildConfig(ctr, bootArgs, spec)
 
 	logrus.Debugf("VM config: kernel=%s rootfs=%s socket=%s", cfg.KernelImagePath, ctr.ImagePath, cfg.SocketPath)
 	logrus.Debugf("boot args: %s", bootArgs)
