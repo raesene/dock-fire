@@ -10,7 +10,11 @@ The basic setup is to clone the repo and run the included `./install.sh` script 
 
 ## Running
 
-Once setup you can run containers with `--runtime=dock-fire` and you'll get isolation in a firecracker VM
+Once setup you can run containers with `--runtime=dock-fire` and you'll get isolation in a firecracker VM. An example command for an interactive shell in an ubuntu:24.04 image would look like this.
+
+```bash
+docker run --runtime=dock-fire --net=none -it ubuntu:24.04 /bin/bash
+```
 
 ## Resource Configuration
 
